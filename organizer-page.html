@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>واجهة المنظمين</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            direction: rtl;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            max-width: 700px;
+            margin: auto;
+        }
+        h2 {
+            text-align: center;
+            color: #232055;
+        }
+        .qr-scanner {
+            margin: 20px 0;
+        }
+        .attendees-list {
+            margin-top: 20px;
+        }
+        .attendees-list ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        .attendees-list li {
+            padding: 8px;
+            background-color: #ecb02f;
+            margin-bottom: 5px;
+            color: white;
+            border-radius: 5px;
+        }
+        .attendee-info {
+            margin-top: 10px;
+        }
+        .camera-btn {
+            display: block;
+            margin: 20px auto;
+            padding: 10px 20px;
+            background-color: #232055;
+            color: white;
+            font-weight: bold;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .toggle-camera-btn {
+            display: block;
+            margin: 20px auto;
+            padding: 10px 20px;
+            background-color: #ecb02f;
+            color: white;
+            font-weight: bold;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>مسح كود الحضور</h2>
+        <div class="qr-scanner">
+            <video id="scanner" width="100%" height="auto"></video>
+        </div>
+        <button class="camera-btn" id="toggleCameraBtn">تشغيل الكاميرا</button>
+        <button class="toggle-camera-btn" id="flipCameraBtn">قلب الكاميرا</button>
+        <div class="attendees-list">
+            <h3>قائمة الحضور</h3>
+            <ul id="attendees"></ul>
+        </div>
+        <div id="attendeeInfo" class="attendee-info"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
+    <script>
+        let isCameraOn = false; // متغير عشان نشوف هل الكاميرا شغالة أو لا
+        let isFrontCamera = false; // متغير عشان نحدد هل نستخدم الكاميرا الأمامية أو الخلفية
+
+        const toggleCameraBtn = document.getElementById("toggleCameraBtn");
+        const flipCameraBtn = document.getElementById("flipCameraBtn");
+        const video = document.getElementById("scanner");
+        const attendees = JSON.parse(localStorage.getItem("attendees")) || []; // استرجاع بيانات الحضور من التخزين المحلي إذا موجودة
+
+        // دالة تعرض قائمة الحضور المخزنين
+        function displayAttendees() {
+            const attendeesList = document.getElementById("attendees");
+            attendeesList.innerHTML = attendees.map(attendee => `<li>${attendee.name} - ${attendee.email}</li>`).join('');
+        }
+        
+        // تشغيل أو إيقاف الكاميرا لما يضغط المستخدم على الزر
+        toggleCameraBtn.addEventListener("click", function() {
+            if (isCameraOn) {
+                stopScanner(); // إذا كانت الكاميرا شغالة، نوقفها
+            } else {
+                startScanner(); // إذا كانت طافية، نشغلها
+            }
+        });
+
+        // قلب الكاميرا بين الأمامية والخلفية لما المستخدم يضغط الزر
+        flipCameraBtn.addEventListener("click", function() {
+            isFrontCamera = !isFrontCamera; // نغير بين وضع الكاميرا الأمامية والخلفية
+            stopScanner(); // نوقف الكاميرا الحالية
+            startScanner(); // نشغلها مرة ثانية بعد التغيير
+        });
+
+        // تشغيل الكاميرا وبدء المسح
+        function startScanner() {
+            const constraints = {
+                video: {
+                    facingMode: isFrontCamera ? "user" : "environment" // نحدد أي كاميرا نستخدم
+                }
+            };
+
+            navigator.mediaDevices.getUserMedia(constraints)
+                .then((stream) => {
+                    video.srcObject = stream; // نربط الفيديو بالستريم حق الكاميرا
+                    video.setAttribute("playsinline", true); 
+                    video.play();
+
+                    toggleCameraBtn.textContent = "إيقاف الكاميرا"; 
+                    isCameraOn = true;
+                    scan(); // نبدأ المسح
+                });
+        }
+
+        // إيقاف الكاميرا
+        function stopScanner() {
+            const stream = video.srcObject;
+            const tracks = stream.getTracks();
+
+            tracks.forEach(track => track.stop()); // نوقف كل التراكات اللي شغالة
+            video.srcObject = null;
+
+            toggleCameraBtn.textContent = "تشغيل الكاميرا"; 
+            isCameraOn = false;
+        }
+
+
+        //دالة المسح
+
+        function scan() {
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        const canvasElement = document.createElement("canvas");
+        const canvas = canvasElement.getContext("2d");
+        canvasElement.height = video.videoHeight;
+        canvasElement.width = video.videoWidth;
+        canvas.drawImage(video, 0, 0, canvasElement.width, canvasElement.height);
+        const imageData = canvas.getImageData(0, 0, canvasElement.width, canvasElement.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+        if (code) {
+            console.log("QR code detected: ", code.data); 
+            try {
+                const userData = JSON.parse(code.data); // فك البيانات من QR
+
+                // نتأكد أن المستخدم مو موجود من قبل
+                if (!attendees.find(att => att.email === userData.email)) {
+                    attendees.push(userData); // إضافة الحضور الجدد
+                    localStorage.setItem("attendees", JSON.stringify(attendees)); // تخزين الحضور في التخزين loacally
+                    displayAttendees(); // تحديث القائمة
+                    displayAttendeeInfo(userData); // عرض معلومات الحضور
+                }
+            } catch (e) {
+                console.error("Error parsing QR data:", e);
+            }
+        }
+    }
+
+    setTimeout(scan, 100); // إعادة المسح كل 100 ملي ثانية
+}
+
+        // دالة تعرض معلومات الحضور بعد المسح
+        function displayAttendeeInfo(data) {
+            document.getElementById("attendeeInfo").innerHTML = `
+                <strong>الاسم:</strong> ${data.name}<br>
+                <strong>البريد الإلكتروني:</strong> ${data.email}
+               
+            `;
+        }
+
+
+
+        // عرض الحضور المخزنين عند تحميل الصفحة
+        displayAttendees();
+    </script>
+</body>
+</html>
